@@ -1,0 +1,241 @@
+\documentclass[10pt]{beamer}
+\usepackage[utf8x]{inputenc}
+\usepackage{hyperref}
+\usepackage{fontawesome}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+% ------------------------------------------------------------------------------
+% Use the beautiful metropolis beamer template
+% ------------------------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage{fontawesome}
+\usepackage{FiraSans} 
+\mode<presentation>
+{
+  \usetheme[progressbar=foot,numbering=fraction,background=light]{metropolis} 
+  \usecolortheme{crane} % or try albatross, beaver, crane, ...
+  \usefonttheme{serif}  % or try serif, structurebold, ...
+  \setbeamertemplate{navigation symbols}{}
+  \setbeamertemplate{caption}[numbered]
+  %\setbeamertemplate{frame footer}{My custom footer}
+  \setbeamercovered{transparent}
+} 
+
+% ------------------------------------------------------------------------------
+% beamer doesn't have texttt defined, but I usually want it anyway
+% ------------------------------------------------------------------------------
+\let\textttorig\texttt
+\renewcommand<>{\texttt}[1]{%
+  \only#2{\textttorig{#1}}%
+}
+
+% ------------------------------------------------------------------------------
+% minted
+% ------------------------------------------------------------------------------
+\usepackage{minted}
+
+
+% ------------------------------------------------------------------------------
+% tcolorbox / tcblisting
+% ------------------------------------------------------------------------------
+\usepackage{xcolor}
+\definecolor{codecolor}{HTML}{FFC300}
+
+\usepackage{tcolorbox}
+\tcbuselibrary{most,listingsutf8,minted}
+
+\tcbset{tcbox width=auto,left=1mm,top=1mm,bottom=1mm,
+right=1mm,boxsep=1mm,middle=1pt}
+
+\newtcblisting{myr}[1]{colback=codecolor!5,colframe=codecolor!80!black,listing only, 
+minted options={numbers=left, style=tcblatex,fontsize=\tiny,breaklines,autogobble,linenos,numbersep=3mm},
+left=5mm,enhanced,
+title=#1, fonttitle=\bfseries,
+listing engine=minted,minted language=python}
+
+
+% ------------------------------------------------------------------------------
+% Listings
+% ------------------------------------------------------------------------------
+\definecolor{mygreen}{HTML}{37980D}
+\definecolor{myblue}{HTML}{0D089F}
+\definecolor{myred}{HTML}{98290D}
+
+\usepackage{listings}
+
+% the following is optional to configure custom highlighting
+\lstdefinelanguage{XML}
+{
+  morestring=[b]",
+  morecomment=[s]{<!--}{-->},
+  morestring=[s]{>}{<},
+  morekeywords={ref,xmlns,version,type,canonicalRef,metr,real,target}% list your attributes here
+}
+
+\lstdefinestyle{myxml}{
+language=XML,
+showspaces=false,
+showtabs=false,
+basicstyle=\ttfamily,
+columns=fullflexible,
+breaklines=true,
+showstringspaces=false,
+breakatwhitespace=true,
+escapeinside={(*@}{@*)},
+basicstyle=\color{mygreen}\ttfamily,%\footnotesize,
+stringstyle=\color{myred},
+commentstyle=\color{myblue}\upshape,
+keywordstyle=\color{myblue}\bfseries,
+}
+
+
+% ------------------------------------------------------------------------------
+% The Document
+% ------------------------------------------------------------------------------
+\title{Serialization: More than Pickling}
+\author{Joseph Lucas}
+\date{PyCon US 2022}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Motivation}
+You've spent hours training a machine learning model. How do you save it and use it later?
+
+You've built an in-memory object with costly, time-dependent queries (\emph{e.g. a snapshot}). How do you share it with colleagues?
+\end{frame}
+
+\begin{frame}{Agenda}
+\begin{itemize}
+    \item Definitions
+    \item Design Considerations
+    \item How
+    \item How not
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Definitions}
+\emph{serialization}: translating a data structure into something that can be \textbf{stored}, \textbf{transmitted}, or \textbf{reconstructed} later.
+
+\begin{center}
+\begin{tabular}{l|l}
+     \textbf{Plaintext} & \textbf{Binary} \\
+     \hline
+     json &  pickle \\
+     csv & joblib\\
+     XML & protobuf\\
+     yaml & avro 
+\end{tabular}
+\end{center}
+
+\end{frame}
+
+\begin{frame}{Design Considerations}
+\begin{itemize}
+    \item \textbf{Types} - Can this be saved in a human-readable representation? Is there value in doing that?
+    \item \textbf{Motivation} - How much control do you have over the opposite end of the process (write/read)?
+    \item \textbf{Requirements} - Performance considerations? Dependency management?
+\end{itemize}
+    
+\end{frame}
+
+\begin{frame}[fragile]{Binary Serialization}
+\begin{minted}
+[
+frame=lines,
+framesep=2mm,
+baselinestretch=1.2,
+bgcolor=myblue!20,
+fontsize=\footnotesize,
+linenos
+]
+{python}
+from sklearn.tree import DecisionTreeClassifier
+
+cls = DecisionTreeClassifier()
+cls.fit() # Expensive step
+
+# Now what?
+\end{minted}
+\end{frame}
+
+\begin{frame}{Start with the Standard}
+\begin{itemize}
+    \item Confirm that you need a binary format -- \url{https://docs.python.org/3/library/pickle.html#comparison-with-json}
+    \item Confirm that you're okay with a python-specific format
+    \item Confirm you have a pickle-able problem -- \url{https://docs.python.org/3/library/pickle.html#what-can-be-pickled-and-unpickled}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Pickle notes}
+\begin{alertblock}{Note}
+"Functions are pickled by “fully qualified” name reference, not by value. Only the names of the function and defining modules are pickled. No code or attributes are pickled. Similarly, classes are pickled by named reference, so the same restrictions in the unpickling environment apply."
+\end{alertblock}
+
+\begin{alertblock}{Note}
+You can customize how user-defined objects are pickled -- \url{https://docs.python.org/3/library/pickle.html#custom-reduction-for-types-functions-and-other-objects}
+\end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{Example}
+\begin{minted}
+[
+frame=lines,
+framesep=2mm,
+baselinestretch=1.2,
+bgcolor=myblue!20,
+fontsize=\footnotesize,
+linenos
+]
+{python}
+from sklearn.tree import DecisionTreeClassifier
+from pickle import dump, load
+
+cls = DecisionTreeClassifier()
+cls.fit()
+
+with open("outfile.pkl", "wb") as f:
+    dump(cls, f)
+    
+# Later
+
+with open("outfile.pkl", "rb") as f:
+    cls = load(f)
+\end{minted}
+
+\begin{alertblock}{Warning}
+This is a minimal code example, but highlights a very common insecure pattern of loading pickle files without any verification. If that file was replaced between writing and reading, this could enable remote-code execution.
+\end{alertblock}
+\end{frame}
+
+\begin{frame}{But I need something else}
+
+\end{frame}
+
+\begin{frame}{Beware}
+
+\end{frame}
+
+\begin{frame}[fragile]{Real World}
+Use built-in methods when available.
+\begin{itemize}
+    \item \url{https://pytorch.org/docs/stable/generated/torch.save.html}
+    \item \url{https://networkx.org/documentation/stable/reference/readwrite/index.html}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Research and References}
+\begin{itemize}
+    \item \url{https://blog.trailofbits.com/2021/03/15/never-a-dill-moment-exploiting-machine-learning-pickle-files/}
+\end{itemize}
+    
+\end{frame}
+
+\begin{frame}{Bonus}
+    The \texttt{pickle} source code is educational and well-commented. Check out  \texttt{memo} and the various \texttt{save\_} methods.
+    
+    \url{https://github.com/python/cpython/blob/3.10/Lib/pickle.py}
+\end{frame}
+
+\end{document}
